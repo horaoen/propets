@@ -1,13 +1,11 @@
-import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth'
 import { useLedgerStore } from '@/stores/ledger'
-import { apiRequest, buildEntriesQuery, type ApiError } from '@/lib/api'
+import { apiRequest, type ApiError } from '@/lib/api'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select } from '@/components/ui/select'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 interface LedgerEntry {
@@ -21,7 +19,6 @@ interface LedgerEntry {
 interface LedgerResponse {
   items: LedgerEntry[]
   total: number
-  total_pages: number
 }
 
 function mapTypeLabel(type: string): string {
@@ -50,24 +47,22 @@ function formatDate(raw: string): string {
 export function LedgerPage() {
   const navigate = useNavigate()
   const { tokens, logout, getRole } = useAuthStore()
-  const { month, page, pageSize, setMonth, setPage, setPageSize, setTotalPages } = useLedgerStore()
+  const { month, setMonth } = useLedgerStore()
 
   const isAdmin = getRole() === 'admin'
 
   const { data, isLoading, error } = useQuery<LedgerResponse, ApiError>({
-    queryKey: ['ledger', month, page, pageSize],
+    queryKey: ['ledger', month],
     queryFn: async () => {
-      const query = buildEntriesQuery({ month, page, pageSize })
-      return apiRequest<LedgerResponse>(`/api/ledger/entries?${query}`)
+      const params = new URLSearchParams()
+      if (month) {
+        params.set('month', month)
+      }
+      params.set('pageSize', '100')
+      return apiRequest<LedgerResponse>(`/api/ledger/entries?${params.toString()}`)
     },
     enabled: !!tokens?.accessToken,
   })
-
-  useEffect(() => {
-    if (data) {
-      setTotalPages(data.total_pages || 1)
-    }
-  }, [data, setTotalPages])
 
   const handleLogout = async () => {
     if (tokens?.refreshToken) {
@@ -84,7 +79,6 @@ export function LedgerPage() {
     navigate('/login', { replace: true })
   }
 
-  const totalPages = data?.total_pages || 1
   const items = data?.items || []
 
   return (
@@ -92,7 +86,7 @@ export function LedgerPage() {
       <Card className="max-w-4xl mx-auto">
         <CardHeader>
           <CardTitle>成员公示流水</CardTitle>
-          <CardDescription>默认显示全部历史，支持按月筛选与分页查看。</CardDescription>
+          <CardDescription>默认显示当月记录，支持按月筛选查看。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-4 items-end">
@@ -105,19 +99,6 @@ export function LedgerPage() {
                 onChange={(e) => setMonth(e.target.value)}
                 className="w-40"
               />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="page-size">每页条数</Label>
-              <Select
-                id="page-size"
-                value={String(pageSize)}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                className="w-24"
-              >
-                <option value="10">10</option>
-                <option value="20">20</option>
-                <option value="50">50</option>
-              </Select>
             </div>
             <div className="flex gap-2 ml-auto">
               {isAdmin && (
@@ -134,7 +115,7 @@ export function LedgerPage() {
           {error && <p className="text-sm text-[var(--destructive)]">{error.message}</p>}
 
           <p className="text-sm text-[var(--muted-foreground)]">
-            {month ? `${month} 的公示记录` : '当前为全历史记录'}
+            {month ? `${month} 的公示记录` : '全部历史记录'}，共 {data?.total || 0} 条
           </p>
 
           {isLoading ? (
@@ -161,28 +142,6 @@ export function LedgerPage() {
               ))}
             </ul>
           )}
-
-          <div className="flex items-center justify-between pt-4">
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage(page - 1)}
-            >
-              上一页
-            </Button>
-            <span className="text-sm text-[var(--muted-foreground)]">
-              第 {page} / {totalPages} 页 · 共 {data?.total || 0} 条
-            </span>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage(page + 1)}
-            >
-              下一页
-            </Button>
-          </div>
         </CardContent>
       </Card>
     </div>

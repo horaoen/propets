@@ -2,12 +2,11 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth'
 import { useLedgerStore } from '@/stores/ledger'
-import { apiRequest, buildEntriesQuery, generateRequestId, type ApiError } from '@/lib/api'
+import { apiRequest, generateRequestId, type ApiError } from '@/lib/api'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select } from '@/components/ui/select'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -23,7 +22,6 @@ interface LedgerEntry {
 interface LedgerResponse {
   items: LedgerEntry[]
   total: number
-  total_pages: number
 }
 
 interface EntryResponse {
@@ -64,7 +62,7 @@ export function AdminLedgerPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { tokens, logout, getRole } = useAuthStore()
-  const { month, page, pageSize, setMonth, setPage, setPageSize, setTotalPages } = useLedgerStore()
+  const { month, setMonth } = useLedgerStore()
 
   const [activeTab, setActiveTab] = useState('donations')
   const [status, setStatus] = useState<{ message: string; type: 'success' | 'error' | '' }>({ message: '', type: '' })
@@ -86,19 +84,17 @@ export function AdminLedgerPage() {
   }, [isAdmin, tokens, navigate])
 
   const { data, isLoading, error } = useQuery<LedgerResponse, ApiError>({
-    queryKey: ['admin-ledger', month, page, pageSize],
+    queryKey: ['admin-ledger', month],
     queryFn: async () => {
-      const query = buildEntriesQuery({ month, page, pageSize })
-      return apiRequest<LedgerResponse>(`/api/ledger/entries?${query}`)
+      const params = new URLSearchParams()
+      if (month) {
+        params.set('month', month)
+      }
+      params.set('pageSize', '100')
+      return apiRequest<LedgerResponse>(`/api/ledger/entries?${params.toString()}`)
     },
     enabled: !!tokens?.accessToken && isAdmin,
   })
-
-  useEffect(() => {
-    if (data) {
-      setTotalPages(data.total_pages || 1)
-    }
-  }, [data, setTotalPages])
 
   const donationMutation = useMutation<EntryResponse, ApiError, typeof donationForm>({
     mutationFn: async (form) => {
@@ -195,7 +191,6 @@ export function AdminLedgerPage() {
     deleteMutation.mutate(deleteDialog.entryId)
   }
 
-  const totalPages = data?.total_pages || 1
   const items = data?.items || []
 
   const isSubmitting = donationMutation.isPending || expenseMutation.isPending || deleteMutation.isPending
@@ -218,19 +213,6 @@ export function AdminLedgerPage() {
                 onChange={(e) => setMonth(e.target.value)}
                 className="w-40"
               />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="admin-page-size">每页条数</Label>
-              <Select
-                id="admin-page-size"
-                value={String(pageSize)}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                className="w-24"
-              >
-                <option value="10">10</option>
-                <option value="20">20</option>
-                <option value="50">50</option>
-              </Select>
             </div>
             <div className="flex gap-2 ml-auto">
               <Button variant="secondary" onClick={() => navigate('/ledger')}>
@@ -353,7 +335,7 @@ export function AdminLedgerPage() {
 
           <div className="pt-4 border-t">
             <p className="text-sm text-[var(--muted-foreground)] mb-4">
-              {month ? `${month} 的后台流水` : '当前为全历史记录'}
+              {month ? `${month} 的后台流水` : '全部历史记录'}，共 {data?.total || 0} 条
             </p>
 
             {error && <p className="text-sm text-[var(--destructive)] mb-4">{error.message}</p>}
@@ -389,18 +371,6 @@ export function AdminLedgerPage() {
                 ))}
               </ul>
             )}
-
-            <div className="flex items-center justify-between pt-4">
-              <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                上一页
-              </Button>
-              <span className="text-sm text-[var(--muted-foreground)]">
-                第 {page} / {totalPages} 页 · 共 {data?.total || 0} 条
-              </span>
-              <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-                下一页
-              </Button>
-            </div>
           </div>
         </CardContent>
       </Card>

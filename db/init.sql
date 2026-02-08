@@ -34,22 +34,6 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
     FOREIGN KEY (deleted_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE TABLE IF NOT EXISTS reversal_links (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  original_entry_id BIGINT UNSIGNED NOT NULL,
-  reversal_entry_id BIGINT UNSIGNED NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  UNIQUE KEY uk_reversal_links_reversal_entry (reversal_entry_id),
-  UNIQUE KEY uk_reversal_links_original_reversal (original_entry_id, reversal_entry_id),
-  KEY idx_reversal_links_original_created (original_entry_id, created_at DESC),
-  CONSTRAINT chk_reversal_links_not_self CHECK (original_entry_id <> reversal_entry_id),
-  CONSTRAINT fk_reversal_links_original_entry
-    FOREIGN KEY (original_entry_id) REFERENCES ledger_entries(id),
-  CONSTRAINT fk_reversal_links_reversal_entry
-    FOREIGN KEY (reversal_entry_id) REFERENCES ledger_entries(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
 CREATE TABLE IF NOT EXISTS refresh_tokens (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   user_id BIGINT UNSIGNED NOT NULL,
@@ -67,7 +51,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 
 CREATE TABLE IF NOT EXISTS ledger_idempotency_keys (
   request_id VARCHAR(128) NOT NULL,
-  operation ENUM('donation', 'expense', 'reversal') NOT NULL,
+  operation ENUM('donation', 'expense') NOT NULL,
   created_by BIGINT UNSIGNED NOT NULL,
   entry_id BIGINT UNSIGNED NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

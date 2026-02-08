@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ProtectedRoute, GuestRoute, AdminRoute } from '@/components/RouteGuards'
 import { LoginPage } from '@/pages/LoginPage'
 import { LedgerPage } from '@/pages/LedgerPage'
+import { LedgerDetailsPage } from '@/pages/LedgerDetailsPage'
 import { AdminLedgerPage } from '@/pages/AdminLedgerPage'
 
 const queryClient = new QueryClient({
@@ -25,6 +26,7 @@ function App() {
 
           <Route element={<ProtectedRoute />}>
             <Route path="/ledger" element={<LedgerPage />} />
+            <Route path="/ledger/details" element={<LedgerDetailsPage />} />
           </Route>
 
           <Route element={<AdminRoute />}>

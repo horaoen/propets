@@ -118,18 +118,6 @@ function toDateInputValue(raw: string): string {
   return `${year}-${month}-${day}`
 }
 
-function toDatetimeLocalValue(raw: string): string {
-  const date = new Date(raw)
-  if (isNaN(date.getTime())) return ''
-
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day}T${hours}:${minutes}`
-}
-
 function getTodayDateValue(): string {
   const now = new Date()
   const year = now.getFullYear()
@@ -155,7 +143,7 @@ export function AdminLedgerPage() {
   const [status, setStatus] = useState<{ message: string; type: 'success' | 'error' | '' }>({ message: '', type: '' })
 
   const [donationForm, setDonationForm] = useState({ donor: '', donatedAt: getTodayDateValue(), amount: '' })
-  const [expenseForm, setExpenseForm] = useState({ purpose: '', handledBy: '', occurredAt: '', amount: '' })
+  const [expenseForm, setExpenseForm] = useState({ purpose: '', handledBy: '', occurredAt: getTodayDateValue(), amount: '' })
   const [editDonationForm, setEditDonationForm] = useState({ donor: '', donatedAt: '', amount: '' })
   const [editExpenseForm, setEditExpenseForm] = useState({ purpose: '', handledBy: '', occurredAt: '', amount: '' })
 
@@ -237,7 +225,7 @@ export function AdminLedgerPage() {
     },
     onSuccess: (result) => {
       setStatus({ message: `创建成功，流水 ID：${result.entryId}`, type: 'success' })
-      setExpenseForm({ purpose: '', handledBy: '', occurredAt: '', amount: '' })
+      setExpenseForm({ purpose: '', handledBy: '', occurredAt: getTodayDateValue(), amount: '' })
       setCreateDialog((prev) => ({ ...prev, open: false }))
       queryClient.invalidateQueries({ queryKey: ['admin-ledger'] })
     },
@@ -344,11 +332,13 @@ export function AdminLedgerPage() {
 
   const handleOpenEditDialog = (item: LedgerEntry) => {
     const fields = parseDescriptionFields(item.description)
-    const fieldMap = new Map(fields.map((field) => [field.key, field.value]))
+    const structuredFields = fields.filter((field) => Boolean(field.key && field.value))
+    const fieldMap = new Map(structuredFields.map((field) => [field.key, field.value]))
+    const legacyDescription = structuredFields.length === 0 ? item.description.trim() : ''
 
     if (item.entry_type === 'donation') {
       setEditDonationForm({
-        donor: fieldMap.get('donor') || '',
+        donor: fieldMap.get('donor') || legacyDescription,
         donatedAt: toDateInputValue(item.occurred_at),
         amount: Number(item.amount).toFixed(2),
       })
@@ -357,9 +347,9 @@ export function AdminLedgerPage() {
     }
 
     setEditExpenseForm({
-      purpose: fieldMap.get('purpose') || '',
+      purpose: fieldMap.get('purpose') || legacyDescription,
       handledBy: fieldMap.get('handled_by') || '',
-      occurredAt: toDatetimeLocalValue(item.occurred_at),
+      occurredAt: toDateInputValue(item.occurred_at),
       amount: Number(item.amount).toFixed(2),
     })
     setEditDialog({ open: true, entryId: item.id, entryType: 'expense' })
@@ -582,7 +572,7 @@ export function AdminLedgerPage() {
                 <Label htmlFor="create-occurredAt">发生时间</Label>
                 <Input
                   id="create-occurredAt"
-                  type="datetime-local"
+                  type="date"
                   value={expenseForm.occurredAt}
                   onChange={(e) => setExpenseForm({ ...expenseForm, occurredAt: e.target.value })}
                   disabled={isSubmitting}
@@ -679,7 +669,7 @@ export function AdminLedgerPage() {
                 <Label htmlFor="edit-occurredAt">发生时间</Label>
                 <Input
                   id="edit-occurredAt"
-                  type="datetime-local"
+                  type="date"
                   value={editExpenseForm.occurredAt}
                   onChange={(e) => setEditExpenseForm({ ...editExpenseForm, occurredAt: e.target.value })}
                   disabled={isSubmitting}

@@ -1,0 +1,28 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.legacy/
+*.log
+
+# Backend
+backend/server
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+test-results/
+coverage/
+
+# Tool generated
+.sisyphus/

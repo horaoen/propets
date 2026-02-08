@@ -1,6 +1,6 @@
 services:
   mysql:
-    image: mysql:8.4
+    image: ${DOCKER_MIRROR_PREFIX:-docker.m.daocloud.io/library/}mysql:8.4
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
@@ -26,6 +26,10 @@ services:
   backend:
     build:
       context: ./backend
+      args:
+        GO_PROXY: "${GO_PROXY:-https://goproxy.cn,direct}"
+        GO_SUMDB: "${GO_SUMDB:-sum.golang.google.cn}"
+
     restart: unless-stopped
     environment:
       APP_PORT: ${BACKEND_APP_PORT:-8080}

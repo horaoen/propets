@@ -37,6 +37,13 @@ type MonthlySummary struct {
 	Balance       string `json:"balance"`
 }
 
+type MonthlyStatistic struct {
+	Month             string `json:"month"`
+	DonationTotal     string `json:"donation_total"`
+	ExpenseTotal      string `json:"expense_total"`
+	CumulativeBalance string `json:"cumulative_balance"`
+}
+
 type ListEntriesInput struct {
 	Month    string
 	Type     string
@@ -72,6 +79,25 @@ func (s *LedgerQueryService) GetMonthlySummary(ctx context.Context, month string
 		ExpenseTotal:  summary.ExpenseTotal,
 		Balance:       summary.Balance,
 	}, nil
+}
+
+func (s *LedgerQueryService) ListMonthlyStatistics(ctx context.Context) ([]MonthlyStatistic, error) {
+	stats, err := s.repo.ListMonthlyStatistics(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]MonthlyStatistic, 0, len(stats))
+	for _, stat := range stats {
+		items = append(items, MonthlyStatistic{
+			Month:             stat.MonthKey,
+			DonationTotal:     stat.DonationTotal,
+			ExpenseTotal:      stat.ExpenseTotal,
+			CumulativeBalance: stat.CumulativeBalance,
+		})
+	}
+
+	return items, nil
 }
 
 func (s *LedgerQueryService) ListEntries(ctx context.Context, input ListEntriesInput) (ListEntriesResult, error) {

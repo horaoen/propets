@@ -21,6 +21,17 @@ interface LedgerResponse {
   total: number
 }
 
+interface MonthlyStatistic {
+  month: string
+  donation_total: string
+  expense_total: string
+  cumulative_balance: string
+}
+
+interface MonthlyStatisticsResponse {
+  items: MonthlyStatistic[]
+}
+
 function mapTypeLabel(type: string): string {
   switch (type) {
     case 'donation':
@@ -44,6 +55,88 @@ function formatDate(raw: string): string {
   }).format(date)
 }
 
+function getCurrentMonth(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+  }).format(new Date())
+}
+
+function formatAmount(raw: string): string {
+  return Number(raw).toFixed(2)
+}
+
+function escapeCsvCell(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`
+}
+
+function buildMonthlyStatsCsv(items: MonthlyStatistic[]): string {
+  const header = ['月份', '捐款', '花费', '总余额(累积)']
+  const lines = items.map((item) => [
+    item.month,
+    formatAmount(item.donation_total),
+    formatAmount(item.expense_total),
+    formatAmount(item.cumulative_balance),
+  ])
+
+  return [header, ...lines].map((row) => row.map((cell) => escapeCsvCell(cell)).join(',')).join('\n')
+}
+
+function parseDetailDescription(description: string): string {
+  const text = description.trim()
+  if (!text) return '-'
+
+  const fields = text
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part, index) => {
+      const [rawKey, ...rest] = part.split('=')
+      return {
+        key: rawKey?.trim(),
+        value: rest.join('=').trim(),
+        index,
+      }
+    })
+
+  if (fields.length === 0) return text
+
+  const labelMap: Record<string, string> = {
+    donor: '捐款人',
+    purpose: '用途',
+    handled_by: '经手人',
+  }
+
+  const getFieldOrder = (key: string): number => {
+    switch (key) {
+      case 'donor':
+        return 0
+      case 'purpose':
+        return 1
+      case 'handled_by':
+        return 2
+      default:
+        return 100
+    }
+  }
+
+  const localized = fields
+    .filter((field): field is { key: string; value: string; index: number } =>
+      Boolean(field.key && field.value)
+    )
+    .sort((a, b) => {
+      const orderDiff = getFieldOrder(a.key) - getFieldOrder(b.key)
+      if (orderDiff !== 0) return orderDiff
+      return a.index - b.index
+    })
+    .map((field) => {
+      const label = labelMap[field.key] || field.key
+      return `${label}：${field.value}`
+    })
+
+  return localized.length > 0 ? localized.join('\n') : text
+}
+
 export function LedgerPage() {
   const navigate = useNavigate()
   const { tokens, logout, getRole } = useAuthStore()
@@ -64,6 +157,16 @@ export function LedgerPage() {
     enabled: !!tokens?.accessToken,
   })
 
+  const {
+    data: monthlyStatsData,
+    isLoading: isMonthlyStatsLoading,
+    error: monthlyStatsError,
+  } = useQuery<MonthlyStatisticsResponse, ApiError>({
+    queryKey: ['ledger-monthly-statistics'],
+    queryFn: () => apiRequest<MonthlyStatisticsResponse>('/api/summary/monthly'),
+    enabled: !!tokens?.accessToken,
+  })
+
   const handleLogout = async () => {
     if (tokens?.refreshToken) {
       try {
@@ -80,39 +183,144 @@ export function LedgerPage() {
   }
 
   const items = data?.items || []
+  const monthlyStats = monthlyStatsData?.items || []
+  const hasMonthFilter = month.length > 0
+
+  const handleExportMonthlyStats = () => {
+    if (monthlyStats.length === 0) return
+
+    const csv = buildMonthlyStatsCsv(monthlyStats)
+    const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const suffix = month || 'all-months'
+    link.href = url
+    link.download = `ledger-monthly-statistics-${suffix}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="min-h-screen bg-[var(--muted)] p-4">
       <Card className="max-w-4xl mx-auto">
-        <CardHeader>
-          <CardTitle>成员公示流水</CardTitle>
-          <CardDescription>默认显示当月记录，支持按月筛选查看。</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-4 items-end">
+        <CardHeader className="space-y-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-1">
-              <Label htmlFor="month-filter">月份筛选</Label>
-              <Input
-                id="month-filter"
-                type="month"
-                value={month}
-                onChange={(e) => setMonth(e.target.value)}
-                className="w-40"
-              />
+              <CardTitle>成员公示流水</CardTitle>
+              <CardDescription>默认显示当月记录，支持按月筛选查看。</CardDescription>
             </div>
-            <div className="flex gap-2 ml-auto">
+            <div className="flex w-full gap-2 sm:w-auto sm:justify-end">
               {isAdmin && (
-                <Button variant="secondary" onClick={() => navigate('/admin/ledger')}>
-                  后台记账
+                <Button
+                  variant="outline"
+                  className="flex-1 sm:flex-none"
+                  onClick={() => navigate('/admin/ledger')}
+                >
+                  前往后台
                 </Button>
               )}
-              <Button variant="secondary" onClick={handleLogout}>
+              <Button variant="secondary" className="flex-1 sm:flex-none" onClick={handleLogout}>
                 退出登录
               </Button>
             </div>
           </div>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 p-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="space-y-1">
+                <Label htmlFor="month-filter">查看月份</Label>
+                <Input
+                  id="month-filter"
+                  type="month"
+                  value={month}
+                  onChange={(e) => setMonth(e.target.value)}
+                  className="w-full sm:w-44"
+                />
+              </div>
+              <div className="flex gap-2">
+                {hasMonthFilter && (
+                  <Button variant="ghost" onClick={() => setMonth('')}>
+                    查看全部
+                  </Button>
+                )}
+                <Button variant="secondary" onClick={() => setMonth(getCurrentMonth())}>
+                  回到本月
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
 
           {error && <p className="text-sm text-[var(--destructive)]">{error.message}</p>}
+          {monthlyStatsError && <p className="text-sm text-[var(--destructive)]">{monthlyStatsError.message}</p>}
+
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)]/20 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium">月度统计</p>
+              <Button variant="outline" onClick={handleExportMonthlyStats} disabled={monthlyStats.length === 0}>
+                导出 CSV
+              </Button>
+            </div>
+            {isMonthlyStatsLoading ? (
+              <p className="mt-2 text-sm text-[var(--muted-foreground)]">统计加载中...</p>
+            ) : monthlyStats.length === 0 ? (
+              <p className="mt-2 text-sm text-[var(--muted-foreground)]">暂无统计数据</p>
+            ) : (
+              <div className="mt-3">
+                {/* Desktop Table View */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full min-w-[460px] text-sm">
+                    <thead>
+                      <tr className="text-left text-[var(--muted-foreground)]">
+                        <th className="pb-2 pr-3 font-medium">月份</th>
+                        <th className="pb-2 pr-3 font-medium">捐款</th>
+                        <th className="pb-2 pr-3 font-medium">花费</th>
+                        <th className="pb-2 font-medium">总余额(累积)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monthlyStats.map((stat) => (
+                        <tr
+                          key={stat.month}
+                          className={`border-t border-[var(--border)]/60 ${hasMonthFilter && stat.month === month ? 'bg-[var(--primary)]/10' : ''}`}
+                        >
+                          <td className="py-2 pr-3">{stat.month}</td>
+                          <td className="py-2 pr-3">{formatAmount(stat.donation_total)}</td>
+                          <td className="py-2 pr-3">{formatAmount(stat.expense_total)}</td>
+                          <td className="py-2 font-semibold">{formatAmount(stat.cumulative_balance)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Card View */}
+                <div className="block sm:hidden space-y-2">
+                  {monthlyStats.map((stat) => (
+                    <div
+                      key={stat.month}
+                      className={`rounded-md border border-[var(--border)] p-3 text-sm ${
+                        hasMonthFilter && stat.month === month ? 'bg-[var(--primary)]/10 border-[var(--primary)]/20' : 'bg-[var(--background)]/50'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="font-medium">{stat.month}</span>
+                        <span className="font-semibold text-[var(--foreground)]">
+                          余额: {formatAmount(stat.cumulative_balance)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-[var(--muted-foreground)] text-xs">
+                        <span>捐: +{formatAmount(stat.donation_total)}</span>
+                        <span>支: -{formatAmount(stat.expense_total)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
           <p className="text-sm text-[var(--muted-foreground)]">
             {month ? `${month} 的公示记录` : '全部历史记录'}，共 {data?.total || 0} 条
@@ -131,10 +339,12 @@ export function LedgerPage() {
                       {mapTypeLabel(item.entry_type)}
                     </span>
                     <span className="font-semibold">
-                      {Number(item.amount).toFixed(2)}
+                      {formatAmount(item.amount)}
                     </span>
                   </div>
-                  <p className="mt-1 text-sm">{item.description || '-'}</p>
+                  <p className="mt-1 text-sm whitespace-pre-line leading-6">
+                    {parseDetailDescription(item.description)}
+                  </p>
                   <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                     发生时间：{formatDate(item.occurred_at)}
                   </p>

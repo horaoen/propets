@@ -67,6 +67,15 @@ type expenseCreateRequest struct {
 	RequestID  string `json:"requestId"`
 }
 
+type ledgerEntryUpdateRequest struct {
+	Donor      string `json:"donor"`
+	DonatedAt  string `json:"donatedAt"`
+	Purpose    string `json:"purpose"`
+	HandledBy  string `json:"handledBy"`
+	OccurredAt string `json:"occurredAt"`
+	Amount     string `json:"amount"`
+}
+
 type responseError struct {
 	Error string `json:"error"`
 }
@@ -135,8 +144,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/ledger/validate-amount", s.handleValidateAmount)
 	s.mux.Handle("POST /api/ledger/donations", s.withAuth(s.withRole("admin", http.HandlerFunc(s.handleCreateDonation))))
 	s.mux.Handle("POST /api/ledger/expenses", s.withAuth(s.withRole("admin", http.HandlerFunc(s.handleCreateExpense))))
+	s.mux.Handle("PATCH /api/ledger/entries/{id}", s.withAuth(s.withRole("admin", http.HandlerFunc(s.handleUpdateEntry))))
 	s.mux.Handle("DELETE /api/ledger/entries/{id}", s.withAuth(s.withRole("admin", http.HandlerFunc(s.handleDeleteEntry))))
 	s.mux.Handle("GET /api/summary", s.withAuth(http.HandlerFunc(s.handleSummary)))
+	s.mux.Handle("GET /api/summary/monthly", s.withAuth(http.HandlerFunc(s.handleMonthlyStatistics)))
 	s.mux.Handle("GET /api/ledger/entries", s.withAuth(http.HandlerFunc(s.handleLedgerEntries)))
 
 	s.mux.Handle("GET /api/admin/ping", s.withAuth(s.withRole("admin", http.HandlerFunc(s.handleAdminPing))))
@@ -157,6 +168,20 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, summary)
+}
+
+type monthlyStatisticsResponse struct {
+	Items []service.MonthlyStatistic `json:"items"`
+}
+
+func (s *Server) handleMonthlyStatistics(w http.ResponseWriter, r *http.Request) {
+	items, err := s.ledgerQueries.ListMonthlyStatistics(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to fetch monthly statistics")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, monthlyStatisticsResponse{Items: items})
 }
 
 type ledgerEntriesResponseItem struct {
@@ -299,10 +324,43 @@ func (s *Server) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleUpdateEntry(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	entryID, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil || entryID == 0 {
+		writeErr(w, http.StatusBadRequest, "invalid entry id")
+		return
+	}
+
+	var req ledgerEntryUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	err = s.ledgerWriter.UpdateLedgerEntry(r.Context(), service.UpdateLedgerEntryInput{
+		EntryID:    entryID,
+		Donor:      req.Donor,
+		DonatedAt:  req.DonatedAt,
+		Purpose:    req.Purpose,
+		HandledBy:  req.HandledBy,
+		OccurredAt: req.OccurredAt,
+		Amount:     req.Amount,
+	})
+	if err != nil {
+		handleLedgerWriteError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func handleLedgerWriteError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, repository.ErrLedgerEntryNotFound):
 		writeErr(w, http.StatusNotFound, "target entry not found")
+	case errors.Is(err, repository.ErrEntryAlreadyDeleted):
+		writeErr(w, http.StatusConflict, "target entry already deleted")
 	case errors.Is(err, repository.ErrIdempotencyConflict):
 		writeErr(w, http.StatusConflict, "idempotency key conflict")
 	case errors.Is(err, repository.ErrIdempotencyRequestLocked):

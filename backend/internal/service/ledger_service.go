@@ -28,6 +28,16 @@ type ExpenseInput struct {
 	RequestID   string
 }
 
+type UpdateLedgerEntryInput struct {
+	EntryID    uint64
+	Donor      string
+	DonatedAt  string
+	Purpose    string
+	HandledBy  string
+	OccurredAt string
+	Amount     string
+}
+
 type LedgerService struct {
 	repo repository.LedgerRepository
 }
@@ -98,6 +108,63 @@ func (s *LedgerService) CreateExpense(ctx context.Context, input ExpenseInput) (
 		return 0, false, err
 	}
 	return entryID, reused, nil
+}
+
+func (s *LedgerService) UpdateLedgerEntry(ctx context.Context, input UpdateLedgerEntryInput) error {
+	if input.EntryID == 0 {
+		return errors.New("entry id is required")
+	}
+	if err := model.ValidateAmount(input.Amount); err != nil {
+		return err
+	}
+
+	entry, err := s.repo.GetEntryByID(ctx, input.EntryID)
+	if err != nil {
+		return err
+	}
+
+	amount := strings.TrimSpace(input.Amount)
+
+	switch entry.EntryType {
+	case model.LedgerEntryTypeDonation:
+		donor := strings.TrimSpace(input.Donor)
+		if donor == "" {
+			return errors.New("donor is required")
+		}
+		donatedAt, err := parseOccurredAt(input.DonatedAt)
+		if err != nil {
+			return fmt.Errorf("invalid donatedAt: %w", err)
+		}
+
+		return s.repo.UpdateEntry(ctx, repository.UpdateLedgerEntryInput{
+			EntryID:     input.EntryID,
+			Amount:      amount,
+			OccurredAt:  donatedAt,
+			Description: fmt.Sprintf("donor=%s", donor),
+		})
+	case model.LedgerEntryTypeExpense:
+		purpose := strings.TrimSpace(input.Purpose)
+		handledBy := strings.TrimSpace(input.HandledBy)
+		if purpose == "" {
+			return errors.New("purpose is required")
+		}
+		if handledBy == "" {
+			return errors.New("handledBy is required")
+		}
+		occurredAt, err := parseOccurredAt(input.OccurredAt)
+		if err != nil {
+			return fmt.Errorf("invalid occurredAt: %w", err)
+		}
+
+		return s.repo.UpdateEntry(ctx, repository.UpdateLedgerEntryInput{
+			EntryID:     input.EntryID,
+			Amount:      amount,
+			OccurredAt:  occurredAt,
+			Description: fmt.Sprintf("purpose=%s;handled_by=%s", purpose, handledBy),
+		})
+	default:
+		return errors.New("invalid entry type")
+	}
 }
 
 func parseOccurredAt(raw string) (time.Time, error) {

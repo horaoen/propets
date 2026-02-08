@@ -19,6 +19,13 @@ type CreateLedgerEntryInput struct {
 	Description string
 }
 
+type UpdateLedgerEntryInput struct {
+	EntryID     uint64
+	Amount      string
+	OccurredAt  time.Time
+	Description string
+}
+
 type ListLedgerEntriesFilter struct {
 	MonthKey string
 	Type     model.LedgerEntryType
@@ -32,6 +39,13 @@ type MonthlySummary struct {
 	Balance       string
 }
 
+type MonthlyStatistic struct {
+	MonthKey          string
+	DonationTotal     string
+	ExpenseTotal      string
+	CumulativeBalance string
+}
+
 type LedgerRepository interface {
 	CreateEntry(ctx context.Context, input CreateLedgerEntryInput) (uint64, error)
 	CreateEntryWithRequestID(ctx context.Context, input CreateLedgerEntryInput, requestID string) (uint64, bool, error)
@@ -39,6 +53,8 @@ type LedgerRepository interface {
 	ListEntries(ctx context.Context, filter ListLedgerEntriesFilter) ([]model.LedgerEntry, error)
 	CountEntries(ctx context.Context, filter ListLedgerEntriesFilter) (int64, error)
 	GetMonthlySummary(ctx context.Context, monthKey string) (MonthlySummary, error)
+	ListMonthlyStatistics(ctx context.Context) ([]MonthlyStatistic, error)
+	UpdateEntry(ctx context.Context, input UpdateLedgerEntryInput) error
 	SoftDeleteEntry(ctx context.Context, entryID uint64, deletedBy uint64) error
 }
 
@@ -106,6 +122,49 @@ func (r *SQLLedgerRepository) CreateEntry(ctx context.Context, input CreateLedge
 		return 0, err
 	}
 	return uint64(id), nil
+}
+
+func (r *SQLLedgerRepository) UpdateEntry(ctx context.Context, input UpdateLedgerEntryInput) error {
+	const updateEntrySQL = `
+	UPDATE ledger_entries
+	SET amount = ?, occurred_at = ?, description = ?
+	WHERE id = ? AND deleted_at IS NULL
+	`
+
+	res, err := r.db.ExecContext(
+		ctx,
+		updateEntrySQL,
+		input.Amount,
+		input.OccurredAt,
+		input.Description,
+		input.EntryID,
+	)
+	if err != nil {
+		return err
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		return nil
+	}
+
+	const checkDeletedSQL = `SELECT deleted_at FROM ledger_entries WHERE id = ? LIMIT 1`
+	var deletedAt sql.NullTime
+	err = r.db.QueryRowContext(ctx, checkDeletedSQL, input.EntryID).Scan(&deletedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrLedgerEntryNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if deletedAt.Valid {
+		return ErrEntryAlreadyDeleted
+	}
+
+	return ErrLedgerEntryNotFound
 }
 
 func (r *SQLLedgerRepository) GetEntryByID(ctx context.Context, entryID uint64) (model.LedgerEntry, error) {
@@ -288,6 +347,66 @@ WHERE month_key = ? AND deleted_at IS NULL
 	}
 
 	return out, nil
+}
+
+func (r *SQLLedgerRepository) ListMonthlyStatistics(ctx context.Context) ([]MonthlyStatistic, error) {
+	const statsSQL = `
+WITH RECURSIVE bounds AS (
+	SELECT
+		COALESCE(MIN(month_key), DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y-%m')) AS start_month,
+		DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y-%m') AS end_month
+	FROM ledger_entries
+	WHERE deleted_at IS NULL
+),
+months AS (
+	SELECT start_month AS month_key
+	FROM bounds
+	UNION ALL
+	SELECT DATE_FORMAT(DATE_ADD(CONCAT(months.month_key, '-01'), INTERVAL 1 MONTH), '%Y-%m') AS month_key
+	FROM months
+	JOIN bounds ON months.month_key < bounds.end_month
+),
+monthly_totals AS (
+	SELECT
+		month_key,
+		COALESCE(SUM(CASE WHEN entry_type = 'donation' THEN amount ELSE 0 END), 0) AS donation_total,
+		COALESCE(SUM(CASE WHEN entry_type = 'expense' THEN amount ELSE 0 END), 0) AS expense_total
+	FROM ledger_entries
+	WHERE deleted_at IS NULL
+	GROUP BY month_key
+)
+SELECT
+	months.month_key,
+	COALESCE(monthly_totals.donation_total, 0) AS donation_total,
+	COALESCE(monthly_totals.expense_total, 0) AS expense_total,
+	SUM(COALESCE(monthly_totals.donation_total, 0) - COALESCE(monthly_totals.expense_total, 0)) OVER (
+		ORDER BY months.month_key ASC
+		ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+	) AS cumulative_balance
+FROM months
+LEFT JOIN monthly_totals ON monthly_totals.month_key = months.month_key
+ORDER BY months.month_key DESC
+`
+
+	rows, err := r.db.QueryContext(ctx, statsSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]MonthlyStatistic, 0)
+	for rows.Next() {
+		var item MonthlyStatistic
+		if err := rows.Scan(&item.MonthKey, &item.DonationTotal, &item.ExpenseTotal, &item.CumulativeBalance); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
 }
 
 func (f ListLedgerEntriesFilter) Validate() error {

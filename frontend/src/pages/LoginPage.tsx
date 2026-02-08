@@ -65,10 +65,13 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[var(--muted)] p-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <Card className="w-full max-w-md border-[var(--border)]/70 shadow-[0_24px_70px_-32px_color-mix(in_oklab,var(--primary)_45%,transparent)]">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">宠物救助公示</CardTitle>
+          <p className="mx-auto mb-2 inline-flex rounded-full bg-[var(--accent)] px-3 py-1 text-xs font-semibold tracking-[0.16em] text-[var(--secondary-foreground)]">
+            公益救助透明账目
+          </p>
+          <CardTitle className="text-2xl text-[var(--secondary-foreground)]">宠物救助公示</CardTitle>
           <CardDescription>成员端登录后可查看全部历史流水，并按月筛选。</CardDescription>
         </CardHeader>
         <CardContent>

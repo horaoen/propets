@@ -12,6 +12,24 @@ interface AuthResponse {
   refreshToken: string
 }
 
+const CN_MOBILE_PHONE_REGEX = /^1[3-9]\d{9}$/
+
+function isValidPhone(phone: string): boolean {
+  return CN_MOBILE_PHONE_REGEX.test(phone)
+}
+
+function getAuthErrorMessage(err: ApiError): string {
+  const normalizedMessage = (err.message || '').trim().toLowerCase()
+
+  if (err.status === 401 && normalizedMessage === 'invalid phone or password') {
+    return '手机号或密码错误'
+  }
+  if (err.status === 400 && normalizedMessage === 'invalid phone format') {
+    return '请输入有效的11位手机号'
+  }
+  return err.message || '请求失败'
+}
+
 export function LoginPage() {
   const navigate = useNavigate()
   const setTokens = useAuthStore((s) => s.setTokens)
@@ -23,8 +41,16 @@ export function LoginPage() {
   const [status, setStatus] = useState('')
 
   const handleSubmit = async (mode: 'login' | 'register') => {
-    if (!phone.trim() || !password.trim()) {
+    const normalizedPhone = phone.trim()
+    const normalizedPassword = password.trim()
+
+    if (!normalizedPhone || !normalizedPassword) {
       setError('请填写手机号和密码')
+      return
+    }
+
+    if (!isValidPhone(normalizedPhone)) {
+      setError('请输入有效的11位手机号')
       return
     }
 
@@ -37,7 +63,7 @@ export function LoginPage() {
         try {
           await apiRequest('/api/auth/register', {
             method: 'POST',
-            body: JSON.stringify({ phone: phone.trim(), password: password.trim() }),
+            body: JSON.stringify({ phone: normalizedPhone, password: normalizedPassword }),
           })
         } catch (e) {
           const err = e as ApiError
@@ -49,7 +75,7 @@ export function LoginPage() {
 
       const tokens = await apiRequest<AuthResponse>('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ phone: phone.trim(), password: password.trim() }),
+        body: JSON.stringify({ phone: normalizedPhone, password: normalizedPassword }),
       })
 
       setTokens(tokens)
@@ -57,7 +83,7 @@ export function LoginPage() {
       navigate('/ledger', { replace: true })
     } catch (e) {
       const err = e as ApiError
-      setError(err.message || '请求失败')
+      setError(getAuthErrorMessage(err))
       setStatus('')
     } finally {
       setLoading(false)
@@ -92,6 +118,7 @@ export function LoginPage() {
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 disabled={loading}
+                maxLength={11}
                 required
               />
             </div>

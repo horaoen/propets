@@ -682,6 +682,10 @@ func decodeAuthRequest(w http.ResponseWriter, r *http.Request) (authRequest, boo
 		writeErr(w, http.StatusBadRequest, "phone and password are required")
 		return authRequest{}, false
 	}
+	if !isValidPhone(req.Phone) {
+		writeErr(w, http.StatusBadRequest, "invalid phone format")
+		return authRequest{}, false
+	}
 	return req, true
 }
 
@@ -702,6 +706,21 @@ func parsePositiveQueryInt(r *http.Request, key string) (int, error) {
 
 func normalizePhone(phone string) string {
 	return strings.TrimSpace(phone)
+}
+
+func isValidPhone(phone string) bool {
+	if len(phone) != 11 {
+		return false
+	}
+	if phone[0] != '1' || phone[1] < '3' || phone[1] > '9' {
+		return false
+	}
+	for i := 0; i < len(phone); i++ {
+		if phone[i] < '0' || phone[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func writeErr(w http.ResponseWriter, status int, message string) {

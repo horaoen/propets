@@ -28,7 +28,7 @@ export async function apiRequest<T>(
     credentials: 'same-origin',
   })
 
-  if (response.status === 401) {
+  if (response.status === 401 && tokens?.accessToken) {
     useAuthStore.getState().logout()
     throw { message: '登录已过期，请重新登录', status: 401 } satisfies ApiError
   }
